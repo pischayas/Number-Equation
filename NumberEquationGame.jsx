@@ -132,15 +132,26 @@ function useSounds(){
 /* ─── SMALL COMPONENTS ───────────────────────────────────── */
 const G={bg:"#07090F",gold:"#C8A84B",green:"#64DC9E",coral:"#E87040"};
 
-function NumCard({card,sel,tiny,onClick}){
+function NumCard({card,sel,tiny,onClick,dimmed,combineTarget}){
   const gold=card.points>=5;
+  const cmb=!!card.combined;
   const w=tiny?46:62,h=tiny?64:86;
-  return(<button onClick={onClick} style={{width:w,height:h,flexShrink:0,borderRadius:10,cursor:"pointer",background:gold?"#1C2C08":"#132040",border:`2px solid ${sel?"#FFD700":gold?"#A89030":"#2A4880"}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",transform:sel?"scale(1.1)":"scale(1)",boxShadow:sel?"0 0 0 2.5px #FFD700,0 0 18px #FFD70038":"0 2px 8px rgba(0,0,0,.5)",transition:"all .12s",position:"relative",outline:"none"}}>
-    <span style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:tiny?19:30,color:gold?"#FFE890":"#C8E4FF",lineHeight:1}}>{card.value}</span>
-    <span style={{fontSize:7,color:gold?"#A89030":"#304870",fontFamily:"monospace",marginTop:2}}>{card.points}pt</span>
+  const bg=cmb?"#082828":gold?"#1C2C08":"#132040";
+  const bord=sel?"#FFD700":combineTarget?"#40D8D8":cmb?"#30A0A0":gold?"#A89030":"#2A4880";
+  const txtCol=cmb?"#60E8E8":gold?"#FFE890":"#C8E4FF";
+  return(<button onClick={onClick} style={{width:w,height:h,flexShrink:0,borderRadius:10,
+    cursor:dimmed?"not-allowed":"pointer",background:bg,border:`2px solid ${bord}`,
+    display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+    transform:sel?"scale(1.1)":combineTarget?"scale(1.05)":"scale(1)",
+    boxShadow:sel?"0 0 0 2.5px #FFD700,0 0 18px #FFD70038":combineTarget?"0 0 12px #40D8D840":"0 2px 8px rgba(0,0,0,.5)",
+    transition:"all .12s",position:"relative",outline:"none",opacity:dimmed?0.3:1}}>
+    <span style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:tiny?19:30,color:txtCol,lineHeight:1}}>{card.value}</span>
+    {cmb&&<span style={{fontSize:6,color:"#30A0A0",fontFamily:"monospace",letterSpacing:"0.05em",lineHeight:1}}>🔗รวม</span>}
+    <span style={{fontSize:7,color:cmb?"#30A0A0":gold?"#A89030":"#304870",fontFamily:"monospace",marginTop:cmb?0:2}}>{card.points}pt</span>
     {sel&&<span style={{position:"absolute",top:-5,right:-5,width:11,height:11,background:"#FFD700",borderRadius:"50%",boxShadow:"0 0 8px #FFD700"}}/>}
   </button>);
 }
+
 function OpCard({card,sel,tiny,onBoard,onClick,onToggle}){
   const wild=!!card.wild;
   const w=tiny?40:52,h=tiny?58:74;
@@ -154,7 +165,7 @@ function OpCard({card,sel,tiny,onBoard,onClick,onToggle}){
 function BoardSlot({card,idx,eqPos,hasSel,onPlace,onReturn,onToggle}){
   if(idx===eqPos-1)return(<div style={{width:50,height:70,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",borderRadius:10,border:"2.5px solid #C8A84B",background:"linear-gradient(160deg,#0C1820,#060E14)",boxShadow:"0 0 14px #C8A84B20"}}><span style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:34,color:"#FFE070",lineHeight:1}}>=</span><span style={{color:"#C8A84B40",fontSize:7,fontFamily:"monospace"}}>P{eqPos}</span></div>);
   if(!card)return(<button onClick={()=>hasSel&&onPlace(idx)} style={{width:50,height:70,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:10,border:`2px ${hasSel?"solid":"dashed"} ${hasSel?"#FFD70055":"#FFFFFF12"}`,background:hasSel?"#FFD70006":"transparent",cursor:hasSel?"pointer":"default",transition:"all .2s",outline:"none"}}><span style={{color:"#FFFFFF10",fontSize:10,fontFamily:"monospace"}}>{idx+1}</span></button>);
-  return card.type==="num"?<NumCard card={card} tiny onBoard onClick={()=>onReturn(idx)}/>:<OpCard card={card} tiny onBoard onClick={()=>onReturn(idx)} onToggle={()=>onToggle(idx)}/>;
+  return card.type==="num"?<NumCard card={card} tiny onBoard onClick={()=>onReturn(idx)}/>:<OpCard card={card} tiny onBoard onClick={()=>onReturn(idx)} onToggle={()=>onToggle(idx)} onSelect={(op)=>onToggle(idx,op)}/>;
 }
 
 function HintModal({hand,board,eqPos,onClose}){
@@ -215,6 +226,9 @@ export default function NumberEquationGame(){
   const[achievement,setAchievement]=useState(null);
   const[timeLeft,setTimeLeft]=useState(0);
   const[opsUsed,setOpsUsed]=useState({"+":0,"-":0,"×":0,"÷":0});
+  const[combineMode,setCombineMode]=useState(false);
+  const[combineCard,setCombineCard]=useState(null);
+  const[rerollsLeft,setRerollsLeft]=useState(3);
 
   const addLog=(m,c="#66788A")=>setLog(p=>[{m,c,k:uid()},...p].slice(0,7));
   const doFlash=(m,c=G.coral)=>{setFlash({m,c});setTimeout(()=>setFlash(null),1800);};
@@ -272,7 +286,7 @@ export default function NumberEquationGame(){
     const{drawn:ops,dk:d3}=drawO(d2,2);
     setScore(0);setCombo(0);setBestCombo(0);setEqCount(0);setPassCount(0);
     setDivUsed(0);setConsecutiveEq(0);setLastPts(0);setHintUsed(0);
-    setOpsUsed({"+":0,"-":0,"×":0,"÷":0});setLog([]);
+    setOpsUsed({"+":0,"-":0,"×":0,"÷":0});setLog([]);setRerollsLeft(3);setCombineMode(false);setCombineCard(null);
     snd.start();
     beginRound(d3,nums,ops,1);
   };
@@ -296,10 +310,11 @@ export default function NumberEquationGame(){
     else setHand(h=>({...h,ops:[...h.ops,card]}));
     setSel(null);setUndoState(null);snd.ret();
   };
-  const toggleWild=idx=>{
+  const toggleWild=(idx,op=null)=>{
     const card=board[idx];if(!card?.wild)return;
-    const b=[...board];const i=card.wild.indexOf(card.resolved);
-    b[idx]={...card,resolved:card.wild[(i+1)%card.wild.length]};
+    const b=[...board];
+    if(op!==null){b[idx]={...card,resolved:op};}
+    else{const i=card.wild.indexOf(card.resolved);b[idx]={...card,resolved:card.wild[(i+1)%card.wild.length]};}
     setBoard(b);snd.click();
   };
   const undoAction=()=>{
@@ -318,6 +333,36 @@ export default function NumberEquationGame(){
   const showHintFn=()=>{
     if(hintUsed>=diff.hintMax){doFlash(`ใช้ Hint ครบ ${diff.hintMax} ครั้งแล้ว`,"#C8A84B");return;}
     setHintUsed(h=>h+1);setShowHint(true);
+  };
+
+  // ── รวมเลขโดด ─────────────────────────────────────────
+  const startCombine=()=>{
+    if(!sel||sel.from!=="num"||sel.card.value>9){doFlash("เลือกเลขโดด 0-9 เพื่อรวม","#C8A84B");return;}
+    setCombineMode(true);setCombineCard({...sel.card});setSel(null);
+    addLog(`เลือก [${sel.card.value}] — กดตัวเลขอีกตัวเพื่อรวมเป็นจำนวนหลายหลัก`,"#C8A84B");
+  };
+  const completeCombine=card2=>{
+    if(!combineCard||card2.value>9||card2.id===combineCard.id){cancelCombine();return;}
+    const nv=combineCard.value*10+card2.value;
+    if(nv>99){doFlash("รวมได้สูงสุด 2 หลัก (0-99)");cancelCombine();return;}
+    const merged={id:uid(),type:"num",value:nv,points:combineCard.points+card2.points,combined:true};
+    setHand(h=>({...h,nums:[...h.nums.filter(c=>c.id!==combineCard.id&&c.id!==card2.id),merged]}));
+    setCombineMode(false);setCombineCard(null);snd.place();
+    addLog(`🔗 [${combineCard.value}][${card2.value}] = ${nv} · ${merged.points}pt`,"#64DC9E");
+  };
+  const cancelCombine=()=>{setCombineMode(false);setCombineCard(null);};
+
+  // ── สุ่มตัวเลขใหม่ (3 ครั้ง/เกม) ────────────────────────
+  const rerollNums=()=>{
+    if(rerollsLeft<=0){doFlash("ใช้สุ่มใหม่หมดแล้ว (3/3)","#C8A84B");return;}
+    if(!decks||!decks.nums.length){doFlash("กองตัวเลขหมดแล้ว");return;}
+    const keep=hand.nums.filter(c=>c.combined);
+    const cnt=hand.nums.filter(c=>!c.combined).length;
+    const{drawn,dk}=drawN(decks,Math.min(cnt,decks.nums.length));
+    if(!drawn.length){doFlash("กองตัวเลขหมดแล้ว");return;}
+    setDecks(dk);setHand(h=>({...h,nums:[...keep,...drawn]}));
+    setRerollsLeft(r=>r-1);setCombineMode(false);setCombineCard(null);setSel(null);
+    snd.draw();addLog(`🔀 สุ่มตัวเลขใหม่ — เหลือ ${rerollsLeft-1} ครั้ง`,"#C8A84B");
   };
 
   const submit=()=>{
@@ -552,9 +597,47 @@ export default function NumberEquationGame(){
       <div style={{padding:"10px 14px 0"}}>
         <div style={{color:"#FFFFFF28",fontSize:9,fontFamily:"monospace",letterSpacing:"0.14em",marginBottom:8}}>ตัวเลขในมือ <span style={{color:"#FFFFFF15"}}>({hand.nums.length}/6)</span></div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",minHeight:68}}>
-          {hand.nums.map(c=><NumCard key={c.id} card={c} sel={sel?.id===c.id} onClick={()=>pickCard("num",c)}/>)}
+          {hand.nums.map(c=>(
+          combineMode
+            ?<NumCard key={c.id} card={c}
+                combineTarget={c.value<=9&&c.id!==combineCard?.id}
+                dimmed={c.value>9||c.id===combineCard?.id}
+                onClick={()=>c.value<=9&&c.id!==combineCard?.id?completeCombine(c):cancelCombine()}/>
+            :<NumCard key={c.id} card={c} sel={sel?.id===c.id} onClick={()=>pickCard("num",c)}/>
+        ))}
           {!hand.nums.length&&<span style={{color:"#FFFFFF15",fontSize:13,alignSelf:"center"}}>ไม่มีตัวเลขในมือ</span>}
         </div>
+
+        {/* Combine mode banner */}
+        {combineMode&&(
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6,padding:"6px 10px",borderRadius:10,background:"#0C2020",border:"1px solid #30A0A050"}}>
+            <span style={{color:"#40C8C8",fontSize:13,fontFamily:"monospace"}}>🔗 [{combineCard?.value}] + ?</span>
+            <span style={{color:"#FFFFFF35",fontSize:11,flex:1}}>กดเลขโดด (0-9) ที่ต้องการต่อท้าย</span>
+            <button onClick={cancelCombine} style={{background:"none",border:"1px solid #FFFFFF15",borderRadius:6,color:"#FFFFFF40",fontSize:11,padding:"2px 8px",cursor:"pointer"}}>ยกเลิก</button>
+          </div>
+        )}
+
+        {/* Combine + Reroll buttons */}
+        {!combineMode&&phase==="play"&&(
+          <div style={{display:"flex",gap:6,marginTop:6}}>
+            <button onClick={startCombine} disabled={!sel||sel.from!=="num"||sel.card.value>9}
+              style={{flex:1,padding:"7px 0",borderRadius:10,fontSize:12,fontFamily:"monospace",cursor:(!sel||sel.from!=="num"||sel.card.value>9)?"not-allowed":"pointer",
+                background:"transparent",transition:"all .15s",outline:"none",
+                border:`1px solid ${(!sel||sel.from!=="num"||sel.card.value>9)?"#FFFFFF10":"#30A0A060"}`,
+                color:(!sel||sel.from!=="num"||sel.card.value>9)?"#FFFFFF18":"#40C8C8",
+                opacity:(!sel||sel.from!=="num"||sel.card.value>9)?0.4:1}}>
+              🔗 รวมเลข
+            </button>
+            <button onClick={rerollNums} disabled={rerollsLeft<=0||phase!=="play"}
+              style={{flex:1,padding:"7px 0",borderRadius:10,fontSize:12,fontFamily:"monospace",
+                cursor:rerollsLeft<=0?"not-allowed":"pointer",
+                background:"transparent",border:`1px solid ${rerollsLeft>0?"#C8A84B50":"#FFFFFF10"}`,
+                color:rerollsLeft>0?"#C8A84B":"#FFFFFF18",outline:"none",transition:"all .15s",
+                opacity:rerollsLeft<=0?0.4:1}}>
+              🔀 สุ่มใหม่ {"●".repeat(rerollsLeft)}{"○".repeat(3-rerollsLeft)}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Operator Hand */}
