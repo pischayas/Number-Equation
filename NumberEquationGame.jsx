@@ -63,8 +63,27 @@ function calcExpr(vals,ops){
   let r=n[0];for(let i=0;i<o.length;i++){if(o[i]==="+")r+=n[i+1];else if(o[i]==="-")r-=n[i+1];else return null;}
   return r;
 }
+// รวมตัวเลขที่อยู่ติดกันบนกระดาน เช่น [4][4] → 44
+function mergeAdjNums(toks){
+  const out=[];let i=0;
+  while(i<toks.length){
+    if(toks[i].type==="num"){
+      let val=toks[i].value,pts=toks[i].points||0,j=i+1;
+      while(j<toks.length&&toks[j].type==="num"){
+        val=val*10+toks[j].value;pts+=toks[j].points||0;j++;
+      }
+      out.push({type:"num",value:val,points:pts,merged:j-i>1});
+      i=j;
+    }else{out.push(toks[i]);i++;}
+  }
+  return out;
+}
+
 function evalSide(toks){
-  if(!toks.length||toks[0].type!=="num"||toks.length%2===0)return null;
+  if(!toks.length)return null;
+  // รวมตัวเลขติดกันก่อน เช่น [4][4][-][9] → [44][-][9]
+  toks=mergeAdjNums(toks);
+  if(toks[0].type!=="num"||toks.length%2===0)return null;
   for(let i=0;i<toks.length;i++)if(i%2===0?toks[i].type!=="num":toks[i].type!=="op")return null;
   const vals=toks.filter(t=>t.type==="num").map(t=>t.value);
   const ops=toks.filter(t=>t.type==="op").map(t=>t.resolved);
@@ -132,12 +151,12 @@ function useSounds(){
 /* ─── SMALL COMPONENTS ───────────────────────────────────── */
 const G={bg:"#07090F",gold:"#C8A84B",green:"#64DC9E",coral:"#E87040"};
 
-function NumCard({card,sel,tiny,onClick,dimmed,combineTarget}){
+function NumCard({card,sel,tiny,onClick,dimmed,combineTarget,multiNum,onBoard}){
   const gold=card.points>=5;
   const cmb=!!card.combined;
   const w=tiny?46:62,h=tiny?64:86;
   const bg=cmb?"#082828":gold?"#1C2C08":"#132040";
-  const bord=sel?"#FFD700":combineTarget?"#40D8D8":cmb?"#30A0A0":gold?"#A89030":"#2A4880";
+  const bord=sel?"#FFD700":combineTarget?"#40D8D8":multiNum?"#C0A040":cmb?"#30A0A0":gold?"#A89030":"#2A4880";
   const txtCol=cmb?"#60E8E8":gold?"#FFE890":"#C8E4FF";
   return(<button onClick={onClick} style={{width:w,height:h,flexShrink:0,borderRadius:10,
     cursor:dimmed?"not-allowed":"pointer",background:bg,border:`2px solid ${bord}`,
@@ -145,7 +164,8 @@ function NumCard({card,sel,tiny,onClick,dimmed,combineTarget}){
     transform:sel?"scale(1.1)":combineTarget?"scale(1.05)":"scale(1)",
     boxShadow:sel?"0 0 0 2.5px #FFD700,0 0 18px #FFD70038":combineTarget?"0 0 12px #40D8D840":"0 2px 8px rgba(0,0,0,.5)",
     transition:"all .12s",position:"relative",outline:"none",opacity:dimmed?0.3:1}}>
-    <span style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:tiny?19:30,color:txtCol,lineHeight:1}}>{card.value}</span>
+    <span style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:tiny?19:30,color:multiNum?"#FFE040":txtCol,lineHeight:1}}>{card.value}</span>
+    {multiNum&&!cmb&&<span style={{fontSize:6,color:"#C0A040",fontFamily:"monospace",lineHeight:1}}>↔</span>}
     {cmb&&<span style={{fontSize:6,color:"#30A0A0",fontFamily:"monospace",letterSpacing:"0.05em",lineHeight:1}}>🔗รวม</span>}
     <span style={{fontSize:7,color:cmb?"#30A0A0":gold?"#A89030":"#304870",fontFamily:"monospace",marginTop:cmb?0:2}}>{card.points}pt</span>
     {sel&&<span style={{position:"absolute",top:-5,right:-5,width:11,height:11,background:"#FFD700",borderRadius:"50%",boxShadow:"0 0 8px #FFD700"}}/>}
@@ -162,10 +182,10 @@ function OpCard({card,sel,tiny,onBoard,onClick,onToggle}){
     {sel&&<span style={{position:"absolute",top:-5,right:-5,width:11,height:11,background:"#FFD700",borderRadius:"50%"}}/>}
   </button>);
 }
-function BoardSlot({card,idx,eqPos,hasSel,onPlace,onReturn,onToggle}){
+function BoardSlot({card,idx,eqPos,hasSel,onPlace,onReturn,onToggle,isMultiNum}){
   if(idx===eqPos-1)return(<div style={{width:50,height:70,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",borderRadius:10,border:"2.5px solid #C8A84B",background:"linear-gradient(160deg,#0C1820,#060E14)",boxShadow:"0 0 14px #C8A84B20"}}><span style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:34,color:"#FFE070",lineHeight:1}}>=</span><span style={{color:"#C8A84B40",fontSize:7,fontFamily:"monospace"}}>P{eqPos}</span></div>);
   if(!card)return(<button onClick={()=>hasSel&&onPlace(idx)} style={{width:50,height:70,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:10,border:`2px ${hasSel?"solid":"dashed"} ${hasSel?"#FFD70055":"#FFFFFF12"}`,background:hasSel?"#FFD70006":"transparent",cursor:hasSel?"pointer":"default",transition:"all .2s",outline:"none"}}><span style={{color:"#FFFFFF10",fontSize:10,fontFamily:"monospace"}}>{idx+1}</span></button>);
-  return card.type==="num"?<NumCard card={card} tiny onBoard onClick={()=>onReturn(idx)}/>:<OpCard card={card} tiny onBoard onClick={()=>onReturn(idx)} onToggle={()=>onToggle(idx)} onSelect={(op)=>onToggle(idx,op)}/>;
+  return card.type==="num"?<NumCard card={card} tiny onBoard multiNum={isMultiNum} onClick={()=>onReturn(idx)}/>:<OpCard card={card} tiny onBoard onClick={()=>onReturn(idx)} onToggle={()=>onToggle(idx)} onSelect={(op)=>onToggle(idx,op)}/>;
 }
 
 function HintModal({hand,board,eqPos,onClose}){
@@ -568,9 +588,17 @@ export default function NumberEquationGame(){
       <div style={{padding:"10px 14px 0"}}>
         <div style={{color:"#FFFFFF28",fontSize:9,fontFamily:"monospace",letterSpacing:"0.14em",marginBottom:8}}>กระดาน</div>
         <div style={{display:"flex",gap:4,flexWrap:"wrap",background:"#0A1018",padding:10,borderRadius:14,border:"1px solid #FFFFFF08",boxShadow:"inset 0 2px 8px rgba(0,0,0,.4)"}}>
-          {Array(8).fill(0).map((_,i)=>(
-            <BoardSlot key={i} card={board[i]} idx={i} eqPos={eqPos} hasSel={!!sel&&phase==="play"} onPlace={placeCard} onReturn={returnCard} onToggle={toggleWild}/>
-          ))}
+          {Array(8).fill(0).map((_,i)=>{
+            // ตรวจว่าตัวเลขนี้ติดกับตัวเลขอื่น (จะรวมเป็นจำนวนหลายหลัก)
+            const ei=eqPos-1;
+            const card=board[i];
+            const prevIsNum=i>0&&i!==ei&&board[i-1]?.type==="num"&&i-1!==ei;
+            const nextIsNum=i<7&&i!==ei&&board[i+1]?.type==="num"&&i+1!==ei;
+            const isMultiNum=card?.type==="num"&&(prevIsNum||nextIsNum);
+            return <BoardSlot key={i} card={card} idx={i} eqPos={eqPos}
+              hasSel={!!sel&&phase==="play"} isMultiNum={isMultiNum}
+              onPlace={placeCard} onReturn={returnCard} onToggle={toggleWild}/>;
+          })}
         </div>
         <div style={{display:"flex",gap:8,marginTop:5}}>
           {sel&&phase==="play"&&<span style={{color:"#FFD70060",fontSize:10,fontFamily:"monospace"}}>← กดช่องกระดานเพื่อวาง</span>}
