@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#4f46e5">
+    <title>Number Equation Game</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & React DOM CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel standalone for JSX parsing -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Firebase CDN 10.7.0 (compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database-compat.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            touch-action: manipulation;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            min-height: 100vh;
+            min-height: 100dvh;
+            margin: 0;
+            padding: 0;
+        }
+        #root {
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            flex-direction: column;
+        }
+        .tile-btn {
+            transition: all 0.15s ease;
+        }
+        .tile-btn:active {
+            transform: scale(0.92);
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Firebase Config & Initialization -->
+    <script>
+        window.FIREBASE_CONFIG = {
+            apiKey: "AIzaSyDHIdotLc224L6W_Y0rPmfpLWSmOCJrBes",
+            databaseURL: "https://number-equation-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "number-equation"
+        };
+
+        // Initialize Firebase safely
+        if (!firebase.apps.length) {
+            firebase.initializeApp(window.FIREBASE_CONFIG);
+        }
+        const db = firebase.database();
+    </script>
+
+    <!-- React Main Application Code -->
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function App() {
+            const [target, setTarget] = useState(0);
+            const [numbers, setNumbers] = useState([]);
+            const [selectedExpression, setSelectedExpression] = useState('');
+            const [usedIndices, setUsedIndices] = useState([]);
+            const [score, setScore] = useState(0);
+            const [streak, setStreak] = useState(0);
+            const [timer, setTimer] = useState(60);
+            const [isGameOver, setIsGameOver] = useState(false);
+            const [isGameStarted, setIsGameStarted] = useState(false);
+            const [playerName, setPlayerName] = useState('');
+            const [leaderboard, setLeaderboard] = useState([]);
+            const [message, setMessage] = useState({ text: '', type: '' });
+
+            // Generate new round
+            const startNewRound = () => {
+                const nums = Array.from({ length: 5 }, () => Math.floor(Math.random() * 9) + 1);
+                // Create a valid formula from numbers to ensure solvability
+                const opArr = ['+', '-', '*'];
+                let val = nums[0];
+                for(let i=1; i<3; i++) {
+                    const op = opArr[Math.floor(Math.random() * opArr.length)];
+                    if (op === '+') val += nums[i];
+                    else if (op === '-') val -= nums[i];
+                    else if (op === '*') val *= nums[i];
+                }
+                
+                setTarget(Math.max(1, val));
+                setNumbers(nums);
+                setSelectedExpression('');
+                setUsedIndices([]);
+            };
+
+            // Fetch leaderboard from Firebase
+            useEffect(() => {
+                const scoresRef = db.ref('leaderboard').orderByChild('score').limitToLast(10);
+                scoresRef.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        const list = Object.values(data).sort((a, b) => b.score - a.score);
+                        setLeaderboard(list);
+                    }
+                });
+                return () => scoresRef.off();
+            }, []);
+
+            // Timer Effect
+            useEffect(() => {
+                let interval = null;
+                if (isGameStarted && !isGameOver && timer > 0) {
+                    interval = setInterval(() => {
+                        setTimer((t) => t - 1);
+                    }, 1000);
+                } else if (timer === 0 && isGameStarted && !isGameOver) {
+                    setIsGameOver(true);
+                    saveScore();
+                }
+                return () => clearInterval(interval);
+            }, [isGameStarted, isGameOver, timer]);
+
+            const startGame = () => {
+                if (!playerName.trim()) {
+                    setMessage({ text: 'กรุณากรอกชื่อผู้เล่นก่อนเริ่มเกม!', type: 'error' });
+                    return;
+                }
+                setScore(0);
+                setStreak(0);
+                setTimer(60);
+                setIsGameOver(false);
+                setIsGameStarted(true);
+                setMessage({ text: '', type: '' });
+                startNewRound();
+            };
+
+            const appendChar = (char, index = null) => {
+                if (index !== null) {
+                    if (usedIndices.includes(index)) return;
+                    setUsedIndices([...usedIndices, index]);
+                }
+                setSelectedExpression((prev) => prev + char);
+            };
+
+            const clearExpression = () => {
+                setSelectedExpression('');
+                setUsedIndices([]);
+            };
+
+            const checkAnswer = () => {
+                try {
+                    // Sanitize input to prevent code execution
+                    if (!/^[0-9+\-*()/ ]+$/.test(selectedExpression)) {
+                        throw new Error('นิพจน์ไม่ถูกต้อง');
+                    }
+                    // Evaluate string safely
+                    const evalResult = Function('"use strict"; return (' + selectedExpression + ')')();
+                    
+                    if (evalResult === target) {
+                        const points = 10 + (streak * 2) + (timer > 30 ? 5 : 0);
+                        setScore((s) => s + points);
+                        setStreak((s) => s + 1);
+                        setMessage({ text: `ถูกต้อง! +${points} คะแนน`, type: 'success' });
+                        startNewRound();
+                    } else {
+                        setStreak(0);
+                        setMessage({ text: `ยังไม่ถูกต้อง! ได้ ${evalResult} (เป้าหมายคือ ${target})`, type: 'error' });
+                        clearExpression();
+                    }
+                } catch (e) {
+                    setMessage({ text: 'รูปแบบสมการไม่ถูกต้อง', type: 'error' });
+                }
+            };
+
+            const saveScore = () => {
+                if (playerName && score > 0) {
+                    db.ref('leaderboard').push({
+                        name: playerName,
+                        score: score,
+                        timestamp: Date.now()
+                    });
+                }
+            };
+
+            return (
+                <div className="max-w-md mx-auto w-full min-h-screen p-4 flex flex-col justify-between">
+                    {/* Header */}
+                    <header className="text-center py-4 border-b border-slate-800">
+                        <h1 className="text-2xl font-bold text-indigo-400 tracking-wide flex items-center justify-center gap-2">
+                            <span>🧮 Number Equation</span>
+                        </h1>
+                        <p className="text-xs text-slate-400 mt-1">เกมฝึกทักษะการสร้างสมการตัวเลข</p>
+                    </header>
+
+                    {/* Content */}
+                    {!isGameStarted ? (
+                        <main className="my-auto space-y-6 bg-slate-800/50 p-6 rounded-2xl border border-slate-700/50 backdrop-blur">
+                            <h2 className="text-xl font-semibold text-center text-slate-200">ยินดีต้อนรับเข้าสู่เกม</h2>
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-2">ชื่อผู้เล่น (Player Name):</label>
+                                <input
+                                    type="text"
+                                    value={playerName}
+                                    onChange={(e) => setPlayerName(e.target.value)}
+                                    placeholder="ใส่ชื่อของคุณที่นี่..."
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition"
+                                />
+                            </div>
+                            
+                            {message.text && (
+                                <p className={`text-sm text-center ${message.type === 'error' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                    {message.text}
+                                </p>
+                            )}
+
+                            <button
+                                onClick={startGame}
+                                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-600/30 transition transform active:scale-95"
+                            >
+                                เริ่มเล่นเกม (Start Game)
+                            </button>
+
+                            {/* Leaderboard preview */}
+                            <div className="pt-4 border-t border-slate-700/50">
+                                <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                                    🏆 อันดับสูงสุด (Leaderboard)
+                                </h3>
+                                <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                    {leaderboard.length === 0 ? (
+                                        <p className="text-xs text-slate-500 text-center py-2">ยังไม่มีข้อมูลอันดับ</p>
+                                    ) : (
+                                        leaderboard.map((item, idx) => (
+                                            <div key={idx} className="flex justify-between items-center text-xs bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+                                                <span className="font-medium text-slate-300">{idx + 1}. {item.name}</span>
+                                                <span className="font-bold text-amber-400">{item.score} คะแนน</span>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </main>
+                    ) : isGameOver ? (
+                        <main className="my-auto space-y-6 text-center bg-slate-800/50 p-6 rounded-2xl border border-slate-700/50">
+                            <div className="text-5xl">⏰</div>
+                            <h2 className="text-2xl font-bold text-slate-100">หมดเวลาการแข่งขัน!</h2>
+                            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800">
+                                <p className="text-sm text-slate-400">คะแนนรวมของคุณ ({playerName})</p>
+                                <p className="text-4xl font-extrabold text-amber-400 my-2">{score}</p>
+                                <p className="text-xs text-slate-500">บันทึกคะแนนลงในฐานข้อมูล Firebase เรียบร้อยแล้ว</p>
+                            </div>
+                            <button
+                                onClick={startGame}
+                                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-600/30 transition transform active:scale-95"
+                            >
+                                เล่นใหม่อีกครั้ง (Play Again)
+                            </button>
+                        </main>
+                    ) : (
+                        <main className="space-y-5 my-auto">
+                            {/* Stats Header */}
+                            <div className="grid grid-cols-3 gap-2 text-center">
+                                <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/50">
+                                    <p className="text-xs text-slate-400">คะแนน</p>
+                                    <p className="text-lg font-bold text-amber-400">{score}</p>
+                                </div>
+                                <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/50">
+                                    <p className="text-xs text-slate-400">เวลา</p>
+                                    <p className={`text-lg font-bold ${timer <= 10 ? 'text-rose-400 animate-pulse' : 'text-indigo-400'}`}>
+                                        {timer}s
+                                    </p>
+                                </div>
+                                <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/50">
+                                    <p className="text-xs text-slate-400">ต่อเนื่อง</p>
+                                    <p className="text-lg font-bold text-emerald-400">{streak}🔥</p>
+                                </div>
+                            </div>
+
+                            {/* Target Box */}
+                            <div className="bg-gradient-to-r from-indigo-900/60 to-purple-900/60 p-6 rounded-2xl border border-indigo-500/30 text-center shadow-lg">
+                                <span className="text-xs uppercase tracking-wider text-indigo-300 font-semibold">เป้าหมาย (Target)</span>
+                                <div className="text-5xl font-black text-white mt-1">{target}</div>
+                            </div>
+
+                            {/* Display Expression Box */}
+                            <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 min-h-[60px] flex items-center justify-between">
+                                <span className="text-xl font-mono text-indigo-300 tracking-wider">
+                                    {selectedExpression || <span className="text-slate-600 text-base">สร้างสมการของคุณที่นี่...</span>}
+                                </span>
+                                {selectedExpression && (
+                                    <button 
+                                        onClick={clearExpression}
+                                        className="text-xs text-rose-400 hover:text-rose-300 px-2 py-1 bg-rose-950/40 border border-rose-800/50 rounded-lg"
+                                    >
+                                        ล้าง
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Alert Message */}
+                            {message.text && (
+                                <p className={`text-xs text-center font-medium ${message.type === 'error' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                    {message.text}
+                                </p>
+                            )}
+
+                            {/* Available Numbers */}
+                            <div>
+                                <p className="text-xs text-slate-400 mb-2">ตัวเลขที่มีให้ใช้:</p>
+                                <div className="grid grid-cols-5 gap-2">
+                                    {numbers.map((num, idx) => (
+                                        <button
+                                            key={idx}
+                                            disabled={usedIndices.includes(idx)}
+                                            onClick={() => appendChar(num.toString(), idx)}
+                                            className={`tile-btn h-12 text-xl font-bold rounded-xl border flex items-center justify-center ${
+                                                usedIndices.includes(idx)
+                                                    ? 'bg-slate-800/40 text-slate-600 border-slate-800 cursor-not-allowed'
+                                                    : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-600 shadow'
+                                            }`}
+                                        >
+                                            {num}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Operators & Controls */}
+                            <div className="grid grid-cols-4 gap-2">
+                                {['+', '-', '*', '(', ')'].map((op) => (
+                                    <button
+                                        key={op}
+                                        onClick={() => appendChar(op)}
+                                        className="tile-btn h-11 bg-slate-800/90 hover:bg-slate-700 text-indigo-300 font-bold text-lg rounded-xl border border-slate-700"
+                                    >
+                                        {op}
+                                    </button>
+                                ))}
+                                <button
+                                    onClick={checkAnswer}
+                                    className="col-span-3 tile-btn h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-base rounded-xl shadow-lg shadow-emerald-600/20"
+                                >
+                                    ส่งคำตอบ (Submit)
+                                </button>
+                            </div>
+                        </main>
+                    )}
+
+                    {/* Footer */}
+                    <footer className="text-center py-3 text-[11px] text-slate-500 border-t border-slate-800/60">
+                        Number Equation &copy; 2026 - Ready for GitHub Pages deployment
+                    </footer>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
