@@ -1,7 +1,0 @@
-# Firebase config (มี API Key)
-config.js
-
-# OS และไฟล์ชั่วคราว
-.DS_Store
-Thumbs.db
-*.log
